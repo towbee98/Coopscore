@@ -136,6 +136,13 @@ export interface UpdateMemberRequest {
   contributionFrequency?: Frequency;
 }
 
+// Demo/dev fallback for injecting a contribution without a live Nomba
+// webhook — see coopscore-handoff-v4.md's webhook-delay risk mitigation.
+export interface SimulateContributionRequest {
+  amount: number;
+  contributedAt?: string;
+}
+
 // FR8 — Account Details Distribution. Deliberately narrower than MemberDetail:
 // just what a printed/shared account slip needs, for members with a provisioned account.
 export interface AccountSlipDTO {
