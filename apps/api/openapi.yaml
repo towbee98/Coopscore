@@ -1,0 +1,694 @@
+openapi: 3.1.0
+info:
+  title: CoopScore API
+  version: 0.1.0
+  description: >
+    Reflects the actual implementation in apps/api/src as of the feat/api-skeleton
+    branch — not the aspirational design in coopscore-api-design-v1.md. Where the
+    two disagree, this file is the source of truth for what's actually running.
+    Known gap: POST /webhooks/nomba currently returns 501 (see NOT_IMPLEMENTED
+    below) — reconciliation logic isn't wired up yet.
+  license:
+    name: UNLICENSED
+    identifier: UNLICENSED
+
+servers:
+  - url: /api
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Auth
+    description: Cooperative manager signup/login (FR1)
+  - name: Cooperatives
+    description: Current cooperative's profile and dashboard summary
+  - name: Members
+    description: Member CRUD, virtual account provisioning, contribution/score history (FR2-3, FR7-8)
+  - name: Recommendations
+    description: AI Credit Officer output — risk tier, amount, LLM narration (FR6)
+  - name: Loans
+    description: Loan requests and approve/reject decisions (FR6)
+  - name: Webhooks
+    description: Nomba inbound transfer events (FR4) — not yet implemented
+
+paths:
+  /auth/signup:
+    post:
+      tags: [Auth]
+      summary: Register a cooperative + manager credentials
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SignupRequest" }
+      responses:
+        "201":
+          description: Account created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "409":
+          description: Email already registered
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Authenticate, issue a JWT
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Authenticated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401":
+          description: Incorrect email or password (deliberately identical for both cases)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+
+  /cooperatives/me:
+    get:
+      tags: [Cooperatives]
+      summary: Current cooperative's profile
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CooperativeDTO" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /cooperatives/me/summary:
+    get:
+      tags: [Cooperatives]
+      summary: Dashboard stat cards
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CooperativeSummary" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /members:
+    get:
+      tags: [Members]
+      summary: List members for the dashboard table
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/MemberStatus" }
+        - name: riskTier
+          in: query
+          schema: { $ref: "#/components/schemas/RiskTier" }
+        - name: search
+          in: query
+          description: Case-insensitive match against full_name
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/MemberSummary" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Members]
+      summary: Add member + provision virtual account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateMemberRequest" }
+      responses:
+        "201":
+          description: Member created (virtualAccount may be null — see 502 below)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MemberDetail" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "502":
+          description: >
+            Nomba provisioning failed. The member row is still created — details.memberId
+            lets the client retry via POST /members/{id}/provision.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+
+  /members/account-slips:
+    get:
+      tags: [Members]
+      summary: Bulk account slip data for print/export (FR8)
+      description: One entry per member with a provisioned + active virtual account.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/AccountSlipDTO" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /members/{id}:
+    parameters:
+      - $ref: "#/components/parameters/MemberId"
+    get:
+      tags: [Members]
+      summary: Member detail page
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MemberDetail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Members]
+      summary: Update member (status, expected amount, frequency)
+      description: >
+        status:"inactive" is system-owned (set only by the scoring engine) and is
+        rejected with 400 VALIDATION_ERROR if a manager attempts to set it directly.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateMemberRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MemberDetail" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /members/{id}/provision:
+    parameters:
+      - $ref: "#/components/parameters/MemberId"
+    post:
+      tags: [Members]
+      summary: Retry Nomba account provisioning
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MemberDetail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: This member already has a provisioned account
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "502":
+          description: Nomba rejected the provisioning request again
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+
+  /members/{id}/contributions:
+    parameters:
+      - $ref: "#/components/parameters/MemberId"
+      - $ref: "#/components/parameters/Limit"
+      - $ref: "#/components/parameters/Offset"
+    get:
+      tags: [Members]
+      summary: Contribution history, newest first
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginatedEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/ContributionDTO" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /members/{id}/score-snapshots:
+    parameters:
+      - $ref: "#/components/parameters/MemberId"
+      - $ref: "#/components/parameters/Limit"
+      - $ref: "#/components/parameters/Offset"
+    get:
+      tags: [Members]
+      summary: Score trend chart data, newest first
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginatedEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/ScoreSnapshotDTO" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /members/{id}/recommendations:
+    parameters:
+      - $ref: "#/components/parameters/MemberId"
+    post:
+      tags: [Recommendations]
+      summary: Generate a loan recommendation
+      description: >
+        llmExplanation is null (not an error) if the Claude narration call fails
+        or times out (5s budget) — the structured risk tier + amount are still
+        returned as a 201. Never decides risk/amount, only narrates it.
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RecommendationDTO" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Member has no score snapshot yet — nothing to recommend against
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+    get:
+      tags: [Recommendations]
+      summary: Recommendation history for a member, newest first
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/RecommendationDTO" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /members/{id}/loans:
+    parameters:
+      - $ref: "#/components/parameters/MemberId"
+    post:
+      tags: [Loans]
+      summary: Create a loan request from a recommendation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateLoanRequest" }
+      responses:
+        "201":
+          description: Created, status "pending"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoanDTO" }
+        "400":
+          description: recommendationId does not belong to this member
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /loans:
+    get:
+      tags: [Loans]
+      summary: Loans overview
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/LoanStatus" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/LoanDTO" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /loans/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Loans]
+      summary: Single loan detail
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoanDTO" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /loans/{id}/decision:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Loans]
+      summary: Approve or reject a pending loan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoanDecisionRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoanDTO" }
+        "400":
+          description: amountApproved missing while decision is "approved"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: This loan has already been decided
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+
+  /webhooks/nomba:
+    post:
+      tags: [Webhooks]
+      summary: "NOT YET IMPLEMENTED — reconciliation is the next roadmap item"
+      security: []
+      description: >
+        Currently always returns 501. Route exists so the URL can be registered
+        in the Nomba dashboard ahead of time. No signature verification, no
+        reconciliation logic yet — see apps/api/src/routes/webhooks.routes.ts.
+      responses:
+        "501":
+          description: Not implemented yet
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "JWT payload: { cooperativeId, iat, exp }"
+
+  parameters:
+    MemberId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200 }
+    Offset:
+      name: offset
+      in: query
+      schema: { type: integer, minimum: 0 }
+
+  responses:
+    ValidationError:
+      description: Request failed zod validation
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    Unauthorized:
+      description: Missing/malformed/invalid JWT
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    NotFound:
+      description: >
+        Not found, or belongs to a different cooperative (identical response —
+        cross-tenant access never returns 403, see coopscore-api-design-v1.md §1)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+
+  schemas:
+    CoopType:
+      type: string
+      enum: [cooperative, sacco, church, trade_association, other]
+    Frequency:
+      type: string
+      enum: [weekly, biweekly, monthly]
+    MemberStatus:
+      type: string
+      enum: [active, inactive, suspended]
+    AccountStatus:
+      type: string
+      enum: [active, suspended]
+    TrendDirection:
+      type: string
+      enum: [improving, stable, declining]
+    RiskTier:
+      type: string
+      enum: [low, medium, high]
+    LoanStatus:
+      type: string
+      enum: [pending, approved, rejected]
+
+    ApiError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, example: VALIDATION_ERROR }
+            message: { type: string }
+            details: {}
+
+    PaginatedEnvelope:
+      type: object
+      properties:
+        pagination:
+          type: object
+          properties:
+            limit: { type: integer }
+            offset: { type: integer }
+            total: { type: integer }
+
+    SignupRequest:
+      type: object
+      required: [name, type, contactEmail, contactPhone, password]
+      properties:
+        name: { type: string, minLength: 1 }
+        type: { $ref: "#/components/schemas/CoopType" }
+        contactEmail: { type: string, format: email }
+        contactPhone: { type: string, minLength: 1 }
+        password: { type: string, minLength: 8 }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 1 }
+
+    CooperativeDTO:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        type: { $ref: "#/components/schemas/CoopType" }
+        contactEmail: { type: string, format: email }
+        contactPhone: { type: string }
+
+    AuthResponse:
+      type: object
+      properties:
+        token: { type: string }
+        cooperative: { $ref: "#/components/schemas/CooperativeDTO" }
+
+    CooperativeSummary:
+      type: object
+      properties:
+        totalMembers: { type: integer }
+        totalCollectedThisMonth: { type: number }
+        activeLoans: { type: integer }
+        membersByRiskTier:
+          type: object
+          properties:
+            low: { type: integer }
+            medium: { type: integer }
+            high: { type: integer }
+
+    MemberSummary:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        fullName: { type: string }
+        status: { $ref: "#/components/schemas/MemberStatus" }
+        riskTier:
+          oneOf:
+            - { $ref: "#/components/schemas/RiskTier" }
+            - type: "null"
+        monthsActive: { type: ["integer", "null"] }
+        lastContributionAt: { type: ["string", "null"], format: date-time }
+
+    VirtualAccountDTO:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        accountNumber: { type: string }
+        bankName: { type: string }
+        status: { $ref: "#/components/schemas/AccountStatus" }
+
+    ScoreSnapshotDTO:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        memberId: { type: string, format: uuid }
+        consistencyPct: { type: number, minimum: 0, maximum: 100 }
+        monthsActive: { type: integer }
+        missedPaymentsCount: { type: integer }
+        averageContribution: { type: number }
+        trend: { $ref: "#/components/schemas/TrendDirection" }
+        riskTier: { $ref: "#/components/schemas/RiskTier" }
+        recommendedLoanAmount: { type: number }
+        computedAt: { type: string, format: date-time }
+
+    MemberDetail:
+      allOf:
+        - $ref: "#/components/schemas/MemberSummary"
+        - type: object
+          properties:
+            phone: { type: string }
+            email: { type: ["string", "null"] }
+            expectedContributionAmount: { type: number }
+            contributionFrequency: { $ref: "#/components/schemas/Frequency" }
+            virtualAccount:
+              oneOf:
+                - { $ref: "#/components/schemas/VirtualAccountDTO" }
+                - type: "null"
+            latestScore:
+              oneOf:
+                - { $ref: "#/components/schemas/ScoreSnapshotDTO" }
+                - type: "null"
+
+    CreateMemberRequest:
+      type: object
+      required: [fullName, phone, expectedContributionAmount, contributionFrequency]
+      properties:
+        fullName: { type: string, minLength: 1 }
+        phone: { type: string, minLength: 1 }
+        email: { type: string, format: email }
+        expectedContributionAmount: { type: number, exclusiveMinimum: 0 }
+        contributionFrequency: { $ref: "#/components/schemas/Frequency" }
+
+    UpdateMemberRequest:
+      type: object
+      properties:
+        status: { $ref: "#/components/schemas/MemberStatus" }
+        expectedContributionAmount: { type: number, exclusiveMinimum: 0 }
+        contributionFrequency: { $ref: "#/components/schemas/Frequency" }
+
+    AccountSlipDTO:
+      type: object
+      properties:
+        memberId: { type: string, format: uuid }
+        fullName: { type: string }
+        phone: { type: string }
+        accountNumber: { type: string }
+        bankName: { type: string }
+        cooperativeName: { type: string }
+
+    ContributionDTO:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        amount: { type: number }
+        contributedAt: { type: string, format: date-time }
+        periodStart: { type: string, format: date }
+        periodEnd: { type: string, format: date }
+        isLate: { type: boolean }
+
+    RecommendationDTO:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        memberId: { type: string, format: uuid }
+        scoreSnapshotId: { type: string, format: uuid }
+        riskTier: { $ref: "#/components/schemas/RiskTier" }
+        recommendedAmount: { type: number }
+        llmExplanation: { type: ["string", "null"] }
+        generatedAt: { type: string, format: date-time }
+
+    CreateLoanRequest:
+      type: object
+      required: [recommendationId]
+      properties:
+        recommendationId: { type: string, format: uuid }
+        amountRequested: { type: number, exclusiveMinimum: 0 }
+
+    LoanDecisionRequest:
+      type: object
+      required: [decision]
+      properties:
+        decision: { type: string, enum: [approved, rejected] }
+        amountApproved: { type: number, exclusiveMinimum: 0 }
+
+    LoanDTO:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        memberId: { type: string, format: uuid }
+        recommendationId: { type: ["string", "null"], format: uuid }
+        amountRequested: { type: number }
+        amountApproved: { type: ["number", "null"] }
+        riskTierAtDecision: { $ref: "#/components/schemas/RiskTier" }
+        status: { $ref: "#/components/schemas/LoanStatus" }
+        decidedAt: { type: ["string", "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
