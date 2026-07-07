@@ -6,7 +6,11 @@ import { computeContributionPeriod } from "../lib/periods.js";
 import { ApiException } from "../lib/api-exception.js";
 import { generateSnapshot } from "./snapshot.service.js";
 
-export type ReconciliationResult = "processed" | "duplicate" | "unmatched_account";
+export type ReconciliationResult =
+  | "processed"
+  | "duplicate"
+  | "unmatched_account"
+  | "ignored_event_type";
 
 type ReconciliationMember = {
   id: string;
@@ -57,24 +61,39 @@ async function recordContribution(params: {
   return "processed";
 }
 
-// Best-effort shape — Nomba's actual webhook payload hasn't been verified
-// against sandbox docs yet (same caveat as nomba.service.ts's auth header).
-// Adjust once real webhook deliveries are observed.
+// Shape confirmed against a real payment_success/vact_transfer example in
+// Nomba's docs (developer.nomba.com/products/webhooks/introduction) — the
+// virtual account that was credited is data.transaction.aliasAccountNumber,
+// NOT data.customer.accountNumber (that's the sender's own bank account).
+// Signature verification is still a separate, deliberate gap — see
+// webhooks.routes.ts.
 interface NombaWebhookPayload {
+  event_type?: string;
   data?: {
-    accountNumber?: string;
-    amount?: number;
-    transactionRef?: string;
-    transactionDate?: string;
+    transaction?: {
+      aliasAccountNumber?: string;
+      type?: string;
+      transactionId?: string;
+      transactionAmount?: number;
+      time?: string;
+    };
   };
 }
 
 export async function reconcileWebhookPayload(payload: unknown): Promise<ReconciliationResult> {
   const body = payload as NombaWebhookPayload;
-  const accountNumber = body.data?.accountNumber;
-  const amount = body.data?.amount;
-  const transactionRef = body.data?.transactionRef;
-  const transactionDate = body.data?.transactionDate;
+
+  // Only inbound transfers into a virtual account should ever create a
+  // contribution — other event types (reversals, failures, etc.) share this
+  // webhook URL and must not be mistaken for a fresh credit.
+  if (body.event_type !== "payment_success" || body.data?.transaction?.type !== "vact_transfer") {
+    return "ignored_event_type";
+  }
+
+  const accountNumber = body.data?.transaction?.aliasAccountNumber;
+  const amount = body.data?.transaction?.transactionAmount;
+  const transactionRef = body.data?.transaction?.transactionId;
+  const transactionDate = body.data?.transaction?.time;
 
   if (!accountNumber || !amount || !transactionRef) {
     throw new ApiException("VALIDATION_ERROR", "Unrecognized webhook payload shape", 400);

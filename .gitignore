@@ -4,3 +4,4 @@ dist/
 .env.local
 *.log
 .obsidian/
+.vscode/mcp.json
