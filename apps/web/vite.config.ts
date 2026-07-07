@@ -12,4 +12,12 @@ export default defineConfig({
       },
     },
   },
+  // Only relevant when apps/web runs as its own Railway service (see
+  // VITE_API_URL in api/client.ts) — `vite preview` serves the production
+  // build and must bind Railway's assigned $PORT on all interfaces, not
+  // just localhost.
+  preview: {
+    host: true,
+    port: Number(process.env.PORT) || 4173,
+  },
 });
