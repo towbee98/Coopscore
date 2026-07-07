@@ -19,5 +19,10 @@ export default defineConfig({
   preview: {
     host: true,
     port: Number(process.env.PORT) || 4173,
+    // Vite blocks unrecognized Host headers by default (DNS-rebinding
+    // protection). Railway assigns a *.up.railway.app domain per service,
+    // so allow the whole subdomain rather than hardcoding one that'll break
+    // if the service is ever recreated with a new generated name.
+    allowedHosts: [".up.railway.app"],
   },
 });
