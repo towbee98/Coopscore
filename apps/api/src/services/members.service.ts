@@ -109,7 +109,7 @@ export async function createMember(
     .returning();
 
   try {
-    const provisioned = await provisionAccount(`member_${member.id}`);
+    const provisioned = await provisionAccount(`member_${member.id}`, member.fullName);
     await db.insert(virtualAccounts).values({
       memberId: member.id,
       nombaAccountRef: `member_${member.id}`,
@@ -238,7 +238,7 @@ export async function retryProvisioning(
     throw new ApiException("ALREADY_PROVISIONED", "This member already has an account", 409);
   }
 
-  const provisioned = await provisionAccount(`member_${member.id}`);
+  const provisioned = await provisionAccount(`member_${member.id}`, member.fullName);
   await db.insert(virtualAccounts).values({
     memberId: member.id,
     nombaAccountRef: `member_${member.id}`,
