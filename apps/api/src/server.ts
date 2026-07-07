@@ -17,8 +17,11 @@ const app = express();
 // Only needed when apps/web runs as a separate Railway service — see
 // CORS_ORIGIN in config/env.ts. Doesn't affect the Nomba webhook (CORS is a
 // browser-enforced mechanism, irrelevant to server-to-server calls).
+// Browsers require an exact string match against the Origin header, so a
+// trailing slash in the env var (an easy copy-paste mistake) would otherwise
+// silently break every cross-origin request — stripped here defensively.
 if (env.CORS_ORIGIN) {
-  app.use(cors({ origin: env.CORS_ORIGIN }));
+  app.use(cors({ origin: env.CORS_ORIGIN.replace(/\/+$/, "") }));
 }
 
 app.use(express.json());
