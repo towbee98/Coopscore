@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import express from "express";
 import { env } from "./config/env.js";
 import { authRouter } from "./routes/auth.routes.js";
@@ -19,8 +22,18 @@ app.use("/api/members", membersRouter);
 app.use("/api/loans", loansRouter);
 app.use("/api/webhooks", webhooksRouter);
 
-// TODO: once apps/web has a production build, serve it here as the catch-all
-// (per coopscore-architecture-v1.md §7) — same Railway service, no CORS to manage.
+// Serves apps/web's production build, one Railway service, no CORS to
+// manage — see coopscore-architecture-v1.md §7. Skipped when the build
+// doesn't exist yet (e.g. running the API alone in local dev, where Vite's
+// own dev server + proxy handles the frontend instead).
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const webDist = path.resolve(__dirname, "../../web/dist");
+if (existsSync(path.join(webDist, "index.html"))) {
+  app.use(express.static(webDist));
+  app.get(/^\/(?!api\/).*/, (_req, res) => {
+    res.sendFile(path.join(webDist, "index.html"));
+  });
+}
 
 app.use(notFoundMiddleware);
 app.use(errorMiddleware);
