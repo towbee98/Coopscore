@@ -9,6 +9,7 @@ const envSchema = z.object({
   NOMBA_ACCOUNT_ID: z.string().optional(),
   NOMBA_CLIENT_ID: z.string().optional(),
   NOMBA_CLIENT_SECRET: z.string().optional(),
+  NOMBA_SIGNATURE_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
 });
 
