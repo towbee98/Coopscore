@@ -25,6 +25,12 @@ import type {
 } from "@coopscore/shared";
 import { clearSession, getToken } from "../lib/auth.ts";
 
+// Empty by default — relative "/api/..." works when the frontend is served
+// same-origin from apps/api (the documented single-service Railway setup).
+// Set VITE_API_URL at build time only when deploying apps/web as a separate
+// service, pointed at the API's own origin (e.g. https://coopscore-production.up.railway.app).
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? "";
+
 export class ApiClientError extends Error {
   constructor(
     public readonly code: string,
@@ -40,7 +46,7 @@ export class ApiClientError extends Error {
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
 
-  const response = await fetch(`/api${path}`, {
+  const response = await fetch(`${API_BASE_URL}/api${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
