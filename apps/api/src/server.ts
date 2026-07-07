@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import cors from "cors";
 import express from "express";
 import { env } from "./config/env.js";
 import { authRouter } from "./routes/auth.routes.js";
@@ -12,6 +13,13 @@ import { docsRouter } from "./routes/docs.routes.js";
 import { errorMiddleware, notFoundMiddleware } from "./middleware/error.middleware.js";
 
 const app = express();
+
+// Only needed when apps/web runs as a separate Railway service — see
+// CORS_ORIGIN in config/env.ts. Doesn't affect the Nomba webhook (CORS is a
+// browser-enforced mechanism, irrelevant to server-to-server calls).
+if (env.CORS_ORIGIN) {
+  app.use(cors({ origin: env.CORS_ORIGIN }));
+}
 
 app.use(express.json());
 
