@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+/* Institutional Trust palette — apps/../design screenshots/Screenshot 2026-07-07 123912.png */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-primary-950: #0d1330;
+  --color-primary-900: #12193f;
+  --color-primary-800: #1a2350;
+  --color-primary-700: #1e2a5a;
+  --color-primary-600: #2a3a75;
+  --color-primary-500: #3b4f96;
+  --color-primary-100: #dde1f0;
+  --color-primary-50: #f2f4fa;
+
+  --color-secondary-700: #0b6a63;
+  --color-secondary-600: #108981;
+  --color-secondary-500: #14a89e;
+  --color-secondary-100: #d7f2ef;
+  --color-secondary-50: #eefbf9;
+
+  --color-tertiary-700: #b45309;
+  --color-tertiary-600: #f59e0b;
+  --color-tertiary-100: #fef3c7;
+  --color-tertiary-50: #fffbeb;
+
+  --color-neutral-950: #101322;
+  --color-neutral-500: #6b7280;
+  --color-neutral-200: #e5e7eb;
+  --color-neutral-100: #f1f2f6;
+  --color-neutral-50: #f8f9fb;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-neutral-50);
+  color: var(--color-neutral-950);
+}

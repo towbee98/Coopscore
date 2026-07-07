@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev:api": "pnpm --filter @coopscore/api run dev",
+    "dev:web": "pnpm --filter @coopscore/web run dev",
+    "build": "pnpm --filter @coopscore/web run build && pnpm --filter @coopscore/api run build",
+    "start": "pnpm --filter @coopscore/api run start",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f postgres",
@@ -17,6 +21,7 @@
     "@eslint/js": "^10.0.1",
     "eslint": "^10.6.0",
     "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "prettier": "^3.9.4",
     "typescript-eslint": "^8.62.1"
   },
